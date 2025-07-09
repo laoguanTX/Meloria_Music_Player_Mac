@@ -20,9 +20,10 @@ void main() async {
 
     WindowOptions windowOptions = const WindowOptions(
       // 定义窗口选项
-      size: Size(1200, 800), // 设置初始窗口大小
-      minimumSize: Size(800, 600), // 设置最小窗口大小
+      size: Size(1200, 700), // 设置初始窗口大小
+      minimumSize: Size(1000, 700), // 设置最小窗口大小
       titleBarStyle: TitleBarStyle.hidden, // 设置标题栏样式为隐藏
+      windowButtonVisibility: false, // 隐藏窗口按钮（交通灯）
     );
     windowManager.waitUntilReadyToShow(windowOptions, () async {
       // 等待窗口准备好显示

@@ -105,6 +105,11 @@ class _PlayerScreenState extends State<PlayerScreen> with TickerProviderStateMix
         if (_lastPosition != newPosition) {
           _lastPosition = newPosition;
           _updateProgressSlider(newPosition, newDuration);
+          
+          // 更新歌词位置
+          if (newSong != null && newSong.hasLyrics) {
+            musicProvider.updateLyric(newPosition);
+          }
         }
 
         if (_lastDuration != newDuration) {
