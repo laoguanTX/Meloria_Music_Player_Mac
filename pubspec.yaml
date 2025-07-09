@@ -1,0 +1,60 @@
+name: music_player
+description: "Material You Music Player - Local music player with wonderful design"
+publish_to: 'none'
+version: 0.1.0
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: any
+    # Audio related
+  audioplayers: any
+  file_picker: any
+  path_provider: ^2.1.5  # Metadata reading
+  audio_metadata_reader: any
+  # flutter_taggy: any # Removed due to compatibility issues
+  uuid: any # Added uuid package
+
+  # State management
+  provider: any
+
+  # UI & Design
+  dynamic_color: any
+  palette_generator: any    # Storage & File handling
+  sqflite: any
+  sqflite_common_ffi: any
+  permission_handler: any
+  fullscreen_window: any
+  path: any
+  window_manager: any
+  scrollable_positioned_list: any
+  shared_preferences: any
+  flutter_launcher_icons: any
+  url_launcher: any
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: any
+
+flutter:
+  uses-material-design: true
+  assets:
+    - lib/asset/fonts/
+    - lib/asset/icon/
+  fonts:
+    - family: MiSans-Bold
+      fonts:
+        - asset: lib/asset/fonts/MiSans-Bold.ttf
+          weight: 700
+    - family: 苹方
+      fonts:
+        - asset: lib/asset/fonts/苹方字体.ttf
+          weight: 700
+    - family: HarmonyOS-Sans
+      fonts:
+        - asset: lib/asset/fonts/HarmonyOS_Sans_SC_Bold.ttf
+          weight: 700
