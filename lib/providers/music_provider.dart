@@ -218,21 +218,17 @@ class MusicProvider with ChangeNotifier {
       notifyListeners();
     });
 
-    // 优化位置变化监听，使用防抖机制
-    Timer? positionUpdateTimer;
+    // 直接监听位置变化，不使用防抖机制以确保实时性
     _audioPlayer.onPositionChanged.listen((position) {
       _currentPosition = position;
 
-      // 取消之前的定时器
-      positionUpdateTimer?.cancel();
+      // 立即更新歌词位置
+      if (_currentSong != null && _currentSong!.hasLyrics) {
+        updateLyric(position);
+      }
 
-      // 设置新的定时器，延迟更新UI
-      positionUpdateTimer = Timer(const Duration(milliseconds: 100), () {
-        if (_currentSong != null && _currentSong!.hasLyrics) {
-          updateLyric(position);
-        }
-        notifyListeners();
-      });
+      // 使用较低频率的通知更新以平衡性能和实时性
+      notifyListeners();
     });
 
     _audioPlayer.onPlayerComplete.listen((_) {
@@ -1468,10 +1464,6 @@ class MusicProvider with ChangeNotifier {
         final songs = await _macOSScanner.scanDirectory(
           folder.path,
           recursive: true,
-          onProgress: (current, total) {
-            // 可以在这里添加进度回调通知UI
-            print('扫描进度: $current/$total');
-          },
           useCache: true,
         );
 

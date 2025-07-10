@@ -13,6 +13,12 @@ import '../providers/theme_provider.dart';
 import '../models/song.dart';
 import '../widgets/music_waveform.dart';
 
+// 歌词滚动支持说明：
+// 1. 鼠标滚轮：通过 onPointerSignal 检测 PointerScrollEvent
+// 2. macOS 触摸板：通过 onPointerMove, onPointerPanZoom* 系列事件检测
+// 3. 触摸拖拽：通过 onVerticalDrag* 和 onPan* 手势检测
+// 4. 所有手动滚动操作都会切换到手动模式，5秒后自动恢复到自动滚动模式
+
 class PlayerScreen extends StatefulWidget {
   // Changed to StatefulWidget
   const PlayerScreen({super.key});
@@ -29,7 +35,7 @@ class _PlayerScreenState extends State<PlayerScreen> with TickerProviderStateMix
   double _sliderDisplayValue = 0.0; // Value shown on the slider
   double _sliderTargetValue = 0.0; // Target value from MusicProvider
   double _animationStartValueForLerp = 0.0; // Start value for lerp interpolation
-  bool _initialized = false; // To track if initial values have been set
+  Timer? _seekDebounceTimer; // Debounce timer for seek operations during dragging
 
   // Add window state variables
   bool _isMaximized = false;
@@ -61,17 +67,22 @@ class _PlayerScreenState extends State<PlayerScreen> with TickerProviderStateMix
   Duration _lastPosition = Duration.zero;
   Duration _lastDuration = Duration.zero;
 
+  // 新的进度条状态管理
+  double _progressValue = 0.0;
+  bool _isUserDragging = false;
+  Timer? _progressSyncTimer;
+
   @override
   void initState() {
     super.initState();
     _progressAnimationController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 300), // Adjusted duration
+      duration: const Duration(milliseconds: 150), // 减少动画时长以提高响应性
     )..addStatusListener(_handleAnimationStatus);
 
     _curvedAnimation = CurvedAnimation(
       parent: _progressAnimationController,
-      curve: Curves.easeOut, // Added easing curve
+      curve: Curves.easeOutQuart, // 使用更快的缓动曲线
     )..addListener(_handleAnimationTick);
 
     windowManager.addListener(this); // Add window listener
@@ -80,8 +91,16 @@ class _PlayerScreenState extends State<PlayerScreen> with TickerProviderStateMix
     // 歌词滚动初始化
     _lastLyricIndex = -1;
 
-    // 使用定时器定期更新进度，减少频繁的状态监听
-    _progressUpdateTimer = Timer.periodic(const Duration(milliseconds: 100), (timer) {
+    // 新的进度条同步定时器 - 高频率更新以确保平滑滚动
+    _progressSyncTimer = Timer.periodic(const Duration(milliseconds: 50), (timer) {
+      if (mounted && !_isUserDragging) {
+        final musicProvider = context.read<MusicProvider>();
+        _updateProgressValue(musicProvider);
+      }
+    });
+
+    // 使用较低频率的定时器减少CPU占用，但保持UI流畅性
+    _progressUpdateTimer = Timer.periodic(const Duration(milliseconds: 200), (timer) {
       if (mounted) {
         final musicProvider = context.read<MusicProvider>();
         final newPosition = musicProvider.currentPosition;
@@ -102,14 +121,12 @@ class _PlayerScreenState extends State<PlayerScreen> with TickerProviderStateMix
           shouldUpdate = true;
         }
 
-        if (_lastPosition != newPosition) {
+        // 使用更精确的位置比较，避免毫秒级差异导致的频繁更新
+        if ((_lastPosition.inMilliseconds - newPosition.inMilliseconds).abs() > 50) {
           _lastPosition = newPosition;
           _updateProgressSlider(newPosition, newDuration);
-          
-          // 更新歌词位置
-          if (newSong != null && newSong.hasLyrics) {
-            musicProvider.updateLyric(newPosition);
-          }
+
+          // 歌词更新由MusicProvider中的onPositionChanged已经处理，这里不需要重复调用
         }
 
         if (_lastDuration != newDuration) {
@@ -170,6 +187,8 @@ class _PlayerScreenState extends State<PlayerScreen> with TickerProviderStateMix
     windowManager.removeListener(this); // Remove window listener
     _manualScrollTimer?.cancel(); // Cancel the timer on dispose
     _progressUpdateTimer?.cancel(); // Cancel the progress update timer
+    _progressSyncTimer?.cancel(); // Cancel the progress sync timer
+    _seekDebounceTimer?.cancel(); // Cancel the seek debounce timer
     // Restore system UI if it was changed for this screen
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     // 歌词滚动控制器无需手动释放
@@ -487,65 +506,6 @@ class _PlayerScreenState extends State<PlayerScreen> with TickerProviderStateMix
             // print(
             //     'PlayerScreen - 专辑图片: ${song.albumArt != null ? '${song.albumArt!.length} bytes' : '无'}');
 
-            double currentActualMillis = 0.0;
-            double totalMillis = musicProvider.totalDuration.inMilliseconds.toDouble();
-            if (totalMillis <= 0) {
-              totalMillis = 1.0; // Avoid division by zero or invalid range for Slider
-            }
-            currentActualMillis = musicProvider.currentPosition.inMilliseconds.toDouble().clamp(0.0, totalMillis);
-
-            if (!_initialized) {
-              // Initialize values directly for the first build.
-              // This ensures the slider starts at the correct position without animation.
-              _sliderDisplayValue = currentActualMillis;
-              _sliderTargetValue = currentActualMillis;
-              _animationStartValueForLerp = currentActualMillis;
-              // Schedule setting _initialized to true after this frame.
-              WidgetsBinding.instance.addPostFrameCallback((_) {
-                if (mounted) {
-                  _initialized = true;
-                }
-              });
-            }
-
-            // Check if the target value needs to be updated.
-            // This condition is crucial for deciding when to start a new animation.
-            if (_sliderTargetValue != currentActualMillis) {
-              // If an animation is already running, stop it.
-              // This prevents conflicts if new updates come in quickly.
-              if (_progressAnimationController.isAnimating) {
-                _progressAnimationController.stop();
-              }
-              // Set the starting point for the new animation to the current display value.
-              // This ensures a smooth transition from the current visual state.
-              _animationStartValueForLerp = _sliderDisplayValue;
-              // Update the target value to the new actual position.
-              _sliderTargetValue = currentActualMillis;
-
-              // Defer starting the animation to after the build phase
-              // This ensures that the widget tree is stable before animation starts.
-              WidgetsBinding.instance.addPostFrameCallback((_) {
-                if (mounted) {
-                  // Double-check if an animation is still needed.
-                  // The state might have changed again by the time this callback executes.
-                  // Also, ensure we don't start animation if the display is already at the target.
-                  if (_sliderDisplayValue != _sliderTargetValue) {
-                    _progressAnimationController.forward(from: 0.0);
-                  } else {
-                    // If, by the time this callback runs, the display value has caught up
-                    // (e.g., due to rapid user interaction or other state changes),
-                    // ensure the controller is reset if it's at the end but shouldn't be.
-                    // Or, if it was stopped mid-way and now matches, no action needed.
-                    // This case primarily handles scenarios where target changed, then changed back
-                    // or was met by other means before animation could start.
-                    // If _sliderDisplayValue == _sliderTargetValue, no animation is needed.
-                    // The controller's state should reflect this (e.g., not stuck at 1.0 from a previous run).
-                    // If it was stopped and reset, `forward(from: 0.0)` handles it.
-                    // If it completed and values match, it's fine.
-                  }
-                }
-              });
-            }
             return _buildBackground(
               context,
               song,
@@ -688,6 +648,41 @@ class _PlayerScreenState extends State<PlayerScreen> with TickerProviderStateMix
                                             }
                                           }
                                         },
+                                        // 添加触摸板滑动支持
+                                        onPointerMove: (event) {
+                                          // 检测触摸板滑动 - 当有垂直方向的移动时
+                                          if (event.delta.dy.abs() > 0.1) {
+                                            if (mounted && _isAutoScrolling) {
+                                              setState(() {
+                                                _isAutoScrolling = false;
+                                              });
+                                              _startManualScrollResetTimer();
+                                            }
+                                          }
+                                        },
+                                        onPointerPanZoomStart: (event) {
+                                          // macOS 触摸板开始滑动时
+                                          if (mounted && _isAutoScrolling) {
+                                            setState(() {
+                                              _isAutoScrolling = false;
+                                            });
+                                            _manualScrollTimer?.cancel();
+                                          }
+                                        },
+                                        onPointerPanZoomUpdate: (event) {
+                                          // macOS 触摸板滑动更新时
+                                          if (mounted && _isAutoScrolling) {
+                                            setState(() {
+                                              _isAutoScrolling = false;
+                                            });
+                                          }
+                                        },
+                                        onPointerPanZoomEnd: (event) {
+                                          // macOS 触摸板滑动结束时
+                                          if (mounted) {
+                                            _startManualScrollResetTimer();
+                                          }
+                                        },
                                         child: GestureDetector(
                                           onTap: () {
                                             if (mounted) {
@@ -722,9 +717,40 @@ class _PlayerScreenState extends State<PlayerScreen> with TickerProviderStateMix
                                               _manualScrollTimer?.cancel(); // Cancel timer on drag start
                                             }
                                           },
+                                          onVerticalDragUpdate: (details) {
+                                            // 触摸板滑动更新时，确保处于手动滚动模式
+                                            if (mounted && _isAutoScrolling) {
+                                              setState(() {
+                                                _isAutoScrolling = false;
+                                              });
+                                            }
+                                          },
                                           onVerticalDragEnd: (_) {
                                             if (mounted) {
                                               _startManualScrollResetTimer(); // Call unified timer reset
+                                            }
+                                          },
+                                          onPanStart: (_) {
+                                            // 添加通用平移手势支持（适用于触摸板的各种滑动方向）
+                                            if (mounted && _isAutoScrolling) {
+                                              setState(() {
+                                                _isAutoScrolling = false;
+                                              });
+                                              _manualScrollTimer?.cancel();
+                                            }
+                                          },
+                                          onPanUpdate: (details) {
+                                            // 平移更新时，检测是否有垂直方向的移动
+                                            if (mounted && _isAutoScrolling && details.delta.dy.abs() > 0.5) {
+                                              setState(() {
+                                                _isAutoScrolling = false;
+                                              });
+                                            }
+                                          },
+                                          onPanEnd: (_) {
+                                            // 平移结束时，启动自动滚动重置计时器
+                                            if (mounted) {
+                                              _startManualScrollResetTimer();
                                             }
                                           },
                                           child: ShaderMask(
@@ -1029,9 +1055,7 @@ class _PlayerScreenState extends State<PlayerScreen> with TickerProviderStateMix
                               ],
                             ),
                     ),
-                    // End of corrected conditional layout
-
-                    // Progress slider 和 Volume slider 并排放置
+                    // End of corrected conditional layout                    // Progress slider 和 Volume slider 并排放置
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 24),
                       child: Row(
@@ -1041,41 +1065,24 @@ class _PlayerScreenState extends State<PlayerScreen> with TickerProviderStateMix
                             flex: 5,
                             child: Column(
                               children: [
-                                Slider(
-                                  value: _sliderDisplayValue.clamp(0.0, totalMillis),
-                                  min: 0.0,
-                                  max: totalMillis,
-                                  onChanged: (value) {
-                                    // Stop animation if it's running
-                                    if (_progressAnimationController.isAnimating) {
-                                      _progressAnimationController.stop();
-                                    }
-                                    // Update display value immediately for responsiveness
-                                    if (mounted) {
-                                      setState(() {
-                                        _sliderDisplayValue = value;
-                                      });
-                                    }
-                                    // Seek to the new position
-                                    musicProvider.seekTo(Duration(milliseconds: value.toInt()));
-                                    // Update the target value to prevent animation jump after user releases slider
-                                    _sliderTargetValue = value;
-                                  },
-                                  onChangeStart: (_) {
-                                    if (_progressAnimationController.isAnimating) {
-                                      _progressAnimationController.stop();
-                                    }
-                                    // When user starts dragging, update the animation start value
-                                    // to the current display value to ensure smooth transition if animation was running.
-                                    _animationStartValueForLerp = _sliderDisplayValue;
-                                  },
-                                  onChangeEnd: (value) {
-                                    // Optional: If you want to trigger something specific when dragging ends,
-                                    // like restarting an animation if it was paused for dragging.
-                                    // For now, we ensure the target is set, and if not playing,
-                                    // the animation will naturally resume or stay at the new _sliderTargetValue.
-                                    // If musicProvider's position updates, the existing logic will handle animation.
-                                  },
+                                SliderTheme(
+                                  data: SliderThemeData(
+                                    trackHeight: 4.0,
+                                    thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 8.0),
+                                    overlayShape: const RoundSliderOverlayShape(overlayRadius: 16.0),
+                                    activeTrackColor: Theme.of(context).colorScheme.primary,
+                                    inactiveTrackColor: Theme.of(context).colorScheme.primaryContainer,
+                                    thumbColor: Theme.of(context).colorScheme.primary,
+                                    overlayColor: Theme.of(context).colorScheme.primary.withOpacity(0.2),
+                                  ),
+                                  child: Slider(
+                                    value: _progressValue.clamp(0.0, 1.0),
+                                    min: 0.0,
+                                    max: 1.0,
+                                    onChangeStart: (value) => _handleProgressDragStart(value),
+                                    onChanged: (value) => _handleProgressDragUpdate(value, musicProvider),
+                                    onChangeEnd: (value) => _handleProgressDragEnd(value, musicProvider),
+                                  ),
                                 ),
                                 Row(
                                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -1498,11 +1505,18 @@ class _PlayerScreenState extends State<PlayerScreen> with TickerProviderStateMix
     });
   }
 
-  // 新增：更新进度条的方法
+  // 新增：更新进度条的方法 - 优化了同步性
   void _updateProgressSlider(Duration position, Duration duration) {
     if (duration.inMilliseconds > 0) {
       final newTargetValue = position.inMilliseconds.toDouble();
-      if (_sliderTargetValue != newTargetValue) {
+      // 减少动画使用，提高实时性
+      final difference = (newTargetValue - _sliderDisplayValue).abs();
+
+      // 如果差距很小（小于1秒），直接更新而不使用动画
+      if (difference < 1000) {
+        _sliderDisplayValue = newTargetValue;
+        _sliderTargetValue = newTargetValue;
+      } else if (_sliderTargetValue != newTargetValue) {
         _sliderTargetValue = newTargetValue;
         if (!_progressAnimationController.isAnimating) {
           _animationStartValueForLerp = _sliderDisplayValue;
@@ -2045,6 +2059,67 @@ class _PlayerScreenState extends State<PlayerScreen> with TickerProviderStateMix
         ],
       ),
     );
+  }
+
+  // 新增：更新进度条值的方法
+  void _updateProgressValue(MusicProvider musicProvider) {
+    if (musicProvider.totalDuration.inMilliseconds > 0) {
+      final currentPosition = musicProvider.currentPosition;
+      final totalDuration = musicProvider.totalDuration;
+
+      final newProgressValue = currentPosition.inMilliseconds / totalDuration.inMilliseconds;
+
+      // 只有当值有明显变化时才更新，避免过度重绘
+      if ((newProgressValue - _progressValue).abs() > 0.001) {
+        if (mounted) {
+          setState(() {
+            _progressValue = newProgressValue.clamp(0.0, 1.0);
+          });
+        }
+      }
+    }
+  }
+
+  // 新增：处理用户拖拽进度条
+  void _handleProgressDragStart(double value) {
+    _isUserDragging = true;
+    if (_progressAnimationController.isAnimating) {
+      _progressAnimationController.stop();
+    }
+  }
+
+  void _handleProgressDragUpdate(double value, MusicProvider musicProvider) {
+    if (mounted) {
+      setState(() {
+        _progressValue = value.clamp(0.0, 1.0);
+      });
+    }
+
+    // 防抖处理，减少seek调用频率
+    _seekDebounceTimer?.cancel();
+    _seekDebounceTimer = Timer(const Duration(milliseconds: 100), () {
+      if (_isUserDragging && musicProvider.totalDuration.inMilliseconds > 0) {
+        final targetPosition = Duration(
+          milliseconds: (value * musicProvider.totalDuration.inMilliseconds).round(),
+        );
+        musicProvider.seekTo(targetPosition);
+      }
+    });
+  }
+
+  void _handleProgressDragEnd(double value, MusicProvider musicProvider) {
+    _isUserDragging = false;
+
+    // 立即执行最终的seek操作
+    if (musicProvider.totalDuration.inMilliseconds > 0) {
+      final targetPosition = Duration(
+        milliseconds: (value * musicProvider.totalDuration.inMilliseconds).round(),
+      );
+      musicProvider.seekTo(targetPosition);
+    }
+
+    // 取消防抖定时器
+    _seekDebounceTimer?.cancel();
   }
 }
 
