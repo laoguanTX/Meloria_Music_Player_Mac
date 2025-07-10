@@ -13,7 +13,7 @@ dependencies:
     # Audio related
   audioplayers: any
   file_picker: any
-  path_provider: ^2.1.5  # Metadata reading
+  path_provider: any  # Metadata reading
   audio_metadata_reader: any
   # flutter_taggy: any # Removed due to compatibility issues
   uuid: any # Added uuid package
@@ -34,6 +34,9 @@ dependencies:
   shared_preferences: any
   flutter_launcher_icons: any
   url_launcher: any
+  # macOS specific optimization packages
+  macos_file_picker: any
+  watcher: any  # For file system monitoring
 
 dev_dependencies:
   flutter_test:

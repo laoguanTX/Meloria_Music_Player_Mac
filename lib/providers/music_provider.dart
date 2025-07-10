@@ -10,6 +10,8 @@ import '../models/song.dart';
 import '../models/playlist.dart'; // ADDED: Playlist model import
 import '../models/lyric_line.dart'; // Added import for LyricLine
 import '../services/database_service.dart';
+import '../services/macos_file_scanner.dart'; // 添加 macOS 文件扫描器
+// 移除文件系统监控器导入，因为不再需要自动扫描功能
 import 'theme_provider.dart';
 import 'dart:io';
 import 'package:path/path.dart' as path;
@@ -24,6 +26,8 @@ enum RepeatMode { singlePlay, sequencePlay, randomPlay, singleCycle } // New Enu
 class MusicProvider with ChangeNotifier {
   final audio.AudioPlayer _audioPlayer = audio.AudioPlayer();
   final DatabaseService _databaseService = DatabaseService();
+  final MacOSFileScanner _macOSScanner = MacOSFileScanner(); // macOS 优化的扫描器
+  // 移除文件系统监控器，因为不再需要自动扫描功能
   ThemeProvider? _themeProvider; // 添加主题提供器引用
 
   List<Song> _songs = []; // 音乐库中的所有歌曲
@@ -85,12 +89,14 @@ class MusicProvider with ChangeNotifier {
   MusicProvider() {
     _initAudioPlayer();
     _loadInitialData(); // Consolidated loading method
+    // 移除文件监控器初始化，因为不再需要自动扫描功能
   }
 
   Future<void> _loadInitialData() async {
     await _loadSongs();
     await _loadHistory();
     await _loadPlaylists(); // ADDED: Load playlists
+    // 移除自动扫描监控器初始化，因为不再需要自动扫描功能
     // Other initial loading if necessary
   }
 
@@ -1407,7 +1413,7 @@ class MusicProvider with ChangeNotifier {
     }
   }
 
-  // 文件夹管理方法
+  // 文件夹管理方法（macOS 优化版本）
   Future<void> addMusicFolder() async {
     try {
       final selectedDirectory = await getDirectoryPath();
@@ -1418,6 +1424,14 @@ class MusicProvider with ChangeNotifier {
           throw Exception('该文件夹已经添加过了');
         }
 
+        // 在 macOS 上快速检查文件夹是否包含音乐文件
+        if (Platform.isMacOS) {
+          final containsMusic = await _macOSScanner.directoryContainsMusic(selectedDirectory);
+          if (!containsMusic) {
+            throw Exception('所选文件夹中未发现音乐文件');
+          }
+        }
+
         final folderId = DateTime.now().millisecondsSinceEpoch.toString();
         final folderName = path.basename(selectedDirectory);
 
@@ -1425,14 +1439,14 @@ class MusicProvider with ChangeNotifier {
           id: folderId,
           name: folderName,
           path: selectedDirectory,
-          isAutoScan: true,
+          isAutoScan: false, // 不再需要自动扫描功能，设置为 false
           createdAt: DateTime.now(),
         );
 
         await _databaseService.insertFolder(folder);
         _folders = await _databaseService.getAllFolders();
 
-        // 立即扫描该文件夹
+        // 立即扫描该文件夹（使用优化的扫描器）
         await scanFolderForMusic(folder);
 
         notifyListeners();
@@ -1449,27 +1463,30 @@ class MusicProvider with ChangeNotifier {
         throw Exception('文件夹不存在: ${folder.path}');
       }
 
-      final musicFiles = <FileSystemEntity>[];
-      final supportedExtensions = ['.mp3', '.m4a', '.aac', '.flac', '.wav', '.ogg'];
+      if (Platform.isMacOS) {
+        // 使用 macOS 优化的扫描器
+        final songs = await _macOSScanner.scanDirectory(
+          folder.path,
+          recursive: true,
+          onProgress: (current, total) {
+            // 可以在这里添加进度回调通知UI
+            print('扫描进度: $current/$total');
+          },
+          useCache: true,
+        );
 
-      // 递归扫描文件夹
-      await for (final entity in directory.list(recursive: true)) {
-        if (entity is File) {
-          final extension = path.extension(entity.path).toLowerCase();
-          if (supportedExtensions.contains(extension)) {
-            musicFiles.add(entity);
+        // 批量插入新发现的歌曲
+        for (final song in songs) {
+          try {
+            await _databaseService.insertSong(song);
+          } catch (e) {
+            // 歌曲可能已存在，忽略错误
+            print('插入歌曲失败 (可能已存在): ${song.title}');
           }
         }
-      }
-
-      // 批量处理音乐文件
-      for (final file in musicFiles) {
-        try {
-          await _processMusicFile(File(file.path));
-        } catch (e) {
-          // 处理文件失败: ${file.path}, 错误: $e
-          // 继续处理其他文件
-        }
+      } else {
+        // 传统扫描方法（用于其他平台）
+        await _scanFolderTraditional(folder);
       }
 
       // 刷新歌曲列表
@@ -1477,6 +1494,33 @@ class MusicProvider with ChangeNotifier {
       notifyListeners();
     } catch (e) {
       throw Exception('扫描文件夹失败: $e');
+    }
+  }
+
+  /// 传统的文件夹扫描方法（非 macOS 平台）
+  Future<void> _scanFolderTraditional(MusicFolder folder) async {
+    final directory = Directory(folder.path);
+    final musicFiles = <FileSystemEntity>[];
+    final supportedExtensions = ['.mp3', '.m4a', '.aac', '.flac', '.wav', '.ogg'];
+
+    // 递归扫描文件夹
+    await for (final entity in directory.list(recursive: true)) {
+      if (entity is File) {
+        final extension = path.extension(entity.path).toLowerCase();
+        if (supportedExtensions.contains(extension)) {
+          musicFiles.add(entity);
+        }
+      }
+    }
+
+    // 批量处理音乐文件
+    for (final file in musicFiles) {
+      try {
+        await _processMusicFile(File(file.path));
+      } catch (e) {
+        // 处理文件失败: ${file.path}, 错误: $e
+        // 继续处理其他文件
+      }
     }
   }
 
@@ -1605,24 +1649,10 @@ class MusicProvider with ChangeNotifier {
     }
   }
 
-  Future<void> toggleFolderAutoScan(String folderId) async {
-    try {
-      final folder = _folders.firstWhere((f) => f.id == folderId);
-      final updatedFolder = folder.copyWith(isAutoScan: !folder.isAutoScan);
-
-      await _databaseService.updateFolder(updatedFolder);
-      _folders = await _databaseService.getAllFolders();
-      notifyListeners();
-    } catch (e) {
-      throw Exception('更新文件夹设置失败: $e');
-    }
-  }
-
   Future<void> rescanAllFolders() async {
     try {
-      final autoScanFolders = _folders.where((f) => f.isAutoScan).toList();
-
-      for (final folder in autoScanFolders) {
+      // 扫描所有文件夹，不再限制于自动扫描的文件夹
+      for (final folder in _folders) {
         await scanFolderForMusic(folder);
       }
     } catch (e) {
@@ -1908,5 +1938,61 @@ class MusicProvider with ChangeNotifier {
       _currentIndex = index;
       await playSong(_playQueue[index], index: index);
     }
+  }
+
+  /// 获取建议的音乐目录（macOS 优化）
+  Future<List<String>> getSuggestedMusicDirectories() async {
+    if (Platform.isMacOS) {
+      return await _macOSScanner.getSuggestedMusicDirectories();
+    }
+    return [];
+  }
+
+  /// 直接添加指定路径的文件夹（macOS 优化）
+  Future<void> addSpecificMusicFolder(String directoryPath) async {
+    try {
+      // 检查文件夹是否已存在
+      final exists = await _databaseService.folderExists(directoryPath);
+      if (exists) {
+        throw Exception('该文件夹已经添加过了');
+      }
+
+      // 在 macOS 上快速检查文件夹是否包含音乐文件
+      if (Platform.isMacOS) {
+        final containsMusic = await _macOSScanner.directoryContainsMusic(directoryPath);
+        if (!containsMusic) {
+          throw Exception('所选文件夹中未发现音乐文件');
+        }
+      }
+
+      final folderId = DateTime.now().millisecondsSinceEpoch.toString();
+      final folderName = path.basename(directoryPath);
+
+      final folder = MusicFolder(
+        id: folderId,
+        name: folderName,
+        path: directoryPath,
+        isAutoScan: true,
+        createdAt: DateTime.now(),
+      );
+
+      await _databaseService.insertFolder(folder);
+      _folders = await _databaseService.getAllFolders();
+
+      // 立即扫描该文件夹（使用优化的扫描器）
+      await scanFolderForMusic(folder);
+
+      notifyListeners();
+    } catch (e) {
+      throw Exception('添加文件夹失败: $e');
+    }
+  }
+
+  /// 资源清理方法
+  @override
+  void dispose() {
+    _audioPlayer.dispose();
+    // 移除文件监控器清理代码，因为不再使用文件监控器
+    super.dispose();
   }
 }

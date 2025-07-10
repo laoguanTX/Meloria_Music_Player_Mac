@@ -205,10 +205,10 @@ packages:
     dependency: "direct main"
     description:
       name: file_picker
-      sha256: ef9908739bdd9c476353d6adff72e88fd00c625f5b959ae23f7567bd5137db0a
+      sha256: ab13ae8ef5580a411c458d6207b6774a6c237d77ac37011b13994879f68a8810
       url: "https://pub.flutter-io.cn"
     source: hosted
-    version: "10.2.0"
+    version: "8.3.7"
   flutter:
     dependency: "direct main"
     description: flutter
@@ -328,6 +328,14 @@ packages:
       url: "https://pub.flutter-io.cn"
     source: hosted
     version: "6.0.0"
+  macos_file_picker:
+    dependency: "direct main"
+    description:
+      name: macos_file_picker
+      sha256: "8999b125f8166b60f4693065ddec7770bfc5b5fe3e4e6cecd78b07a3b33e7701"
+      url: "https://pub.flutter-io.cn"
+    source: hosted
+    version: "0.6.1"
   matcher:
     dependency: transitive
     description:
@@ -436,18 +444,18 @@ packages:
     dependency: "direct main"
     description:
       name: permission_handler
-      sha256: bc917da36261b00137bbc8896bf1482169cd76f866282368948f032c8c1caae1
+      sha256: "59adad729136f01ea9e35a48f5d1395e25cba6cea552249ddbe9cf950f5d7849"
       url: "https://pub.flutter-io.cn"
     source: hosted
-    version: "12.0.1"
+    version: "11.4.0"
   permission_handler_android:
     dependency: transitive
     description:
       name: permission_handler_android
-      sha256: "1e3bc410ca1bf84662104b100eb126e066cb55791b7451307f9708d4007350e6"
+      sha256: d3971dcdd76182a0c198c096b5db2f0884b0d4196723d21a866fc4cdea057ebc
       url: "https://pub.flutter-io.cn"
     source: hosted
-    version: "13.0.1"
+    version: "12.1.0"
   permission_handler_apple:
     dependency: transitive
     description:
@@ -837,6 +845,14 @@ packages:
       url: "https://pub.flutter-io.cn"
     source: hosted
     version: "15.0.0"
+  watcher:
+    dependency: "direct main"
+    description:
+      name: watcher
+      sha256: "0b7fd4a0bbc4b92641dbf20adfd7e3fd1398fe17102d94b674234563e110088a"
+      url: "https://pub.flutter-io.cn"
+    source: hosted
+    version: "1.1.2"
   web:
     dependency: transitive
     description:

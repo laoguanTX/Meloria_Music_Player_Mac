@@ -42,7 +42,7 @@ class _FolderTabState extends State<FolderTab> {
                                 child: CircularProgressIndicator(strokeWidth: 2),
                               )
                             : const Icon(Icons.refresh),
-                        tooltip: '重新扫描所有文件夹',
+                        tooltip: '重新扫描所有文件夹中的音乐文件',
                       ),
                       ElevatedButton.icon(
                         onPressed: _isScanning ? null : () => _addFolder(musicProvider),
@@ -129,7 +129,7 @@ class _FolderTabState extends State<FolderTab> {
           ),
           const SizedBox(height: 8),
           Text(
-            '添加文件夹后，系统会自动扫描其中的音乐文件',
+            '添加文件夹后，系统会扫描其中的音乐文件',
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                   color: Theme.of(context).colorScheme.outline,
                 ),
@@ -173,15 +173,15 @@ class _FolderTabState extends State<FolderTab> {
                 Row(
                   children: [
                     Icon(
-                      folder.isAutoScan ? Icons.sync : Icons.sync_disabled,
+                      Icons.music_note,
                       size: 16,
-                      color: folder.isAutoScan ? Theme.of(context).colorScheme.primary : Theme.of(context).colorScheme.outline,
+                      color: Theme.of(context).colorScheme.primary,
                     ),
                     const SizedBox(width: 4),
                     Text(
-                      folder.isAutoScan ? '自动扫描已启用' : '自动扫描已禁用',
+                      '音乐文件夹',
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: folder.isAutoScan ? Theme.of(context).colorScheme.primary : Theme.of(context).colorScheme.outline,
+                            color: Theme.of(context).colorScheme.primary,
                           ),
                     ),
                   ],
@@ -198,16 +198,6 @@ class _FolderTabState extends State<FolderTab> {
                       const Icon(Icons.search),
                       const SizedBox(width: 8),
                       const Text('立即扫描'),
-                    ],
-                  ),
-                ),
-                PopupMenuItem(
-                  value: 'toggle_auto_scan',
-                  child: Row(
-                    children: [
-                      Icon(folder.isAutoScan ? Icons.sync_disabled : Icons.sync),
-                      const SizedBox(width: 8),
-                      Text(folder.isAutoScan ? '禁用自动扫描' : '启用自动扫描'),
                     ],
                   ),
                 ),
@@ -276,7 +266,7 @@ class _FolderTabState extends State<FolderTab> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('文件夹扫描完成'),
+            content: Text('所有文件夹扫描完成，重复歌曲已自动跳过'),
             backgroundColor: Colors.green,
           ),
         );
@@ -310,7 +300,7 @@ class _FolderTabState extends State<FolderTab> {
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
-                content: Text('${folder.name} 扫描完成'),
+                content: Text('${folder.name} 扫描完成，重复歌曲已自动跳过'),
                 backgroundColor: Colors.green,
               ),
             );
@@ -329,28 +319,6 @@ class _FolderTabState extends State<FolderTab> {
             setState(() {
               _isScanning = false;
             });
-          }
-        }
-        break;
-      case 'toggle_auto_scan':
-        try {
-          await musicProvider.toggleFolderAutoScan(folder.id);
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text(folder.isAutoScan ? '已禁用自动扫描' : '已启用自动扫描'),
-                backgroundColor: Colors.green,
-              ),
-            );
-          }
-        } catch (e) {
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text('操作失败: $e'),
-                backgroundColor: Theme.of(context).colorScheme.error,
-              ),
-            );
           }
         }
         break;

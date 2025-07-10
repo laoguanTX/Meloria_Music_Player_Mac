@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'dart:io';
 import '../providers/theme_provider.dart';
+import '../widgets/macos_optimization_settings.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'duplicate_songs_screen.dart';
 
@@ -85,6 +87,13 @@ class SettingsScreen extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 24),
+
+          // macOS 优化设置（仅在 macOS 上显示）
+          if (Platform.isMacOS) ...[
+            const MacOSOptimizationSettings(),
+            const SizedBox(height: 24),
+          ],
+
           const Text('功能', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
           const SizedBox(height: 8),
           Card(

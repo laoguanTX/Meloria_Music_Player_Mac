@@ -341,6 +341,16 @@ class DatabaseService {
     return result.isNotEmpty;
   }
 
+  Future<List<Song>> getSongsByFilePath(String filePath) async {
+    final db = await database;
+    final List<Map<String, dynamic>> maps = await db.query(
+      'songs',
+      where: 'filePath = ?',
+      whereArgs: [filePath],
+    );
+    return List.generate(maps.length, (i) => Song.fromMap(maps[i]));
+  }
+
   // History methods
   Future<void> insertHistorySong(String songId) async {
     final db = await database;
